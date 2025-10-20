@@ -1,0 +1,71 @@
+#!/bin/bash
+# Optimized Network Settings + BBRv3 + fq
+# Works on Ubuntu/Debian/CentOS/AlmaLinux with kernel 6.1+
+
+set -e
+CONF_FILE="/etc/sysctl.d/99-optimized.conf"
+
+echo "[+] Applying optimized network settings (BBRv3 + fq)..."
+
+cat > "$CONF_FILE" <<'EOF'
+# IPv4 Forwarding
+net.ipv4.ip_forward = 1
+
+# Queue discipline and congestion control
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_ecn = 1
+net.ipv4.tcp_sack = 1
+net.ipv4.tcp_timestamps = 1
+net.ipv4.tcp_mtu_probing = 1
+
+# Buffers
+net.core.rmem_max = 33554432
+net.core.wmem_max = 33554432
+net.core.rmem_default = 262144
+net.core.wmem_default = 262144
+net.ipv4.udp_rmem_min = 65536
+net.ipv4.udp_wmem_min = 65536
+net.ipv4.tcp_rmem = 4096 131072 33554432
+net.ipv4.tcp_wmem = 4096 131072 33554432
+net.core.somaxconn = 4096
+net.core.netdev_max_backlog = 10000
+
+# Security
+net.ipv4.tcp_syncookies = 1
+net.ipv4.conf.all.rp_filter = 2
+net.ipv4.conf.default.rp_filter = 2
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+EOF
+
+# Apply sysctl changes
+sysctl --system > /dev/null
+
+# Load BBR module if available
+modprobe tcp_bbr || true
+
+# Try enabling BBRv3 if supported
+if grep -q "bbr3" /proc/sys/net/ipv4/tcp_available_congestion_control 2>/dev/null; then
+    sysctl -w net.ipv4.tcp_congestion_control=bbr3
+    echo "[+] BBRv3 enabled successfully!"
+else
+    echo "[!] BBRv3 not found, enabling BBRv2/BBR instead..."
+    sysctl -w net.ipv4.tcp_congestion_control=bbr
+fi
+
+# Show active congestion control
+echo "[+] Active TCP congestion control:"
+sysctl net.ipv4.tcp_congestion_control
+
+# Verify active qdisc
+echo "[+] Active queue discipline:"
+sysctl net.core.default_qdisc
+
+echo "[✓] Network optimization complete (BBRv3 + fq)."
